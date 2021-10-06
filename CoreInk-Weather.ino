@@ -25,15 +25,15 @@
 const int8_t boundaryOfDate = 18;
 
 // WiFi接続情報を指定する場合は有効にする 無効の場合は前回接続したWiFiの情報を使用
-// #define WIFI_SSID "****"
-// #define WIFI_PASS "****"
+#define WIFI_SSID ""
+#define WIFI_PASS ""
 
 // NTPによる時刻補正を常に行う場合は有効にする 無効の場合でもEXTボタンを押しながら起動することで時刻補正を行う
-// #define ADJUST_RTC_NTP
+#define ADJUST_RTC_NTP
 
 // 天気を取得する間隔(秒) 1 - 10800 の間で指定
 // 気象庁から取得できるJSONの仕様を鑑みて、午前6時と午後6時に取得する方針に変更
-// #define UPDATE_INTERVAL 10800
+//#define UPDATE_INTERVAL 10
 
 const char* endpoint = "https://www.jma.go.jp/bosai/forecast/data/forecast/130000.json";
 const char* region = "東京地方";
@@ -98,7 +98,7 @@ void setup() {
     RTC_DateTypeDef RtcDate;
     RTC_TimeTypeDef RtcTime;
     M5.rtc.GetTime(&RtcTime);
-    M5.rtc.GetData(&RtcDate); // typo of "Date"
+    M5.rtc.GetDate(&RtcDate); // typo of "Date"
     if(RtcTime.Hours >= boundaryOfDate) offsetDate(&RtcDate,1); // RtcDateを翌日に設定
 
     drawWeather(getWeatherOfDay(RtcDate));
@@ -110,7 +110,7 @@ void setup() {
     RTC_DateTypeDef RtcDateToWake;
     RTC_TimeTypeDef RtcTimeToWake;
     M5.rtc.GetTime(&RtcTimeToWake);
-    M5.rtc.GetData(&RtcDateToWake);
+    M5.rtc.GetDate(&RtcDateToWake);
     if(RtcTime.Hours < 12) {
         RtcTimeToWake.Hours = 18;
     }
@@ -202,29 +202,33 @@ Weather getWeatherOfDay(RTC_Date date) {
 }
 
 void drawWeather(Weather weather) {
-    Serial.printf("Weather: %s, minTemp: %d, maxTemp: %d, minRain: %d, maxRain: %d\n",weather.weather,weather.minTemperature,weather.maxTemperature,weather.minRainfallChance,weather.maxRainfallChance);
+    Serial.printf("Weather: %s, minTemp: %d, maxTemp: %d, minRain: %d, maxRain: %d\n",weather.weather.c_str(),weather.minTemperature,weather.maxTemperature,weather.minRainfallChance,weather.maxRainfallChance);
 
     M5.M5Ink.clear();
     M5.M5Ink.drawBuff((uint8_t *)image_background);
     weatherSprite.clear();
     
     String weatherString = weather.weather;
-    if (weatherString.indexOf("雨") != -1) {
-        if (weatherString.indexOf("くもり") != -1) {
-            weatherSprite.drawBuff(46,36,108,96,image_rainyandcloudy);
-        } else {
-            weatherSprite.drawBuff(46,36,108,96,image_rainy);
-        }
-    } else if (weatherString.indexOf("晴") != -1) {
-        if (weatherString.indexOf("くもり") != -1) {
+    if (weatherString.indexOf("晴") != 0) {
+        if (weatherString.indexOf("時々　くもり") != -1) {
             weatherSprite.drawBuff(46,36,108,96,image_sunnyandcloudy);
         } else {
             weatherSprite.drawBuff(46,36,108,96,image_sunny);
         }
-    } else if (weatherString.indexOf("雪") != -1) {
+    } else if (weatherString.indexOf("雨") != 0) {
+        if (weatherString.indexOf("時々　くもり") != -1) {
+            weatherSprite.drawBuff(46,36,108,96,image_rainyandcloudy);
+        } else {
+            weatherSprite.drawBuff(46,36,108,96,image_rainy);
+        }
+    } else if (weatherString.indexOf("雪") != 0) {
             weatherSprite.drawBuff(46,36,108,96,image_snow);
-    } else if (weatherString.indexOf("くもり") != -1) {
+    } else if (weatherString.indexOf("くもり") != 0) {
+        if (weatherString.indexOf("時々　雨") != -1) {
+            weatherSprite.drawBuff(46,36,108,96,image_rainyandcloudy);
+        } else {
             weatherSprite.drawBuff(46,36,108,96,image_cloudy);
+        }
     }
     weatherSprite.pushSprite();
  
@@ -234,6 +238,7 @@ void drawWeather(Weather weather) {
 
 void drawTemperature(String maxTemperature, String minTemperature) {
     temperatureSprite.clear();
+    delay(1);
     temperatureSprite.drawString(63,145,maxTemperature.c_str(),&AsciiFont8x16);
     temperatureSprite.drawString(63,168,minTemperature.c_str(),&AsciiFont8x16);
     temperatureSprite.pushSprite();
@@ -241,6 +246,7 @@ void drawTemperature(String maxTemperature, String minTemperature) {
 
 void drawRainfallChance(String maxRainfallChance,String minRainfallChance) {
     rainfallChanceSprite.clear();
+    delay(1);
     rainfallChanceSprite.drawString(142,145,maxRainfallChance.c_str(),&AsciiFont8x16);
     rainfallChanceSprite.drawString(142,168,minRainfallChance.c_str(),&AsciiFont8x16);
     rainfallChanceSprite.pushSprite();
@@ -255,7 +261,7 @@ void drawDate(String date) {
         RTC_DateTypeDef RtcDate;
         RTC_TimeTypeDef RtcTime;
         M5.rtc.GetTime(&RtcTime);
-        M5.rtc.GetData(&RtcDate); // typo of "Date"
+        M5.rtc.GetDate(&RtcDate); // typo of "Date"
         String nowString = String("Updated: ") + dateTimeToString(RtcDate,RtcTime);
         dateSprite.drawString(0,184,nowString.c_str(),&AsciiFont8x16);
     }
@@ -297,5 +303,5 @@ void adjustRTC() {
     convertTimeToRTC(&RtcTime, timeinfo);
     convertDateToRTC(&RtcDate, timeinfo);
     M5.rtc.SetTime(&RtcTime);
-    M5.rtc.SetData(&RtcDate);
+    M5.rtc.SetDate(&RtcDate);
 }
