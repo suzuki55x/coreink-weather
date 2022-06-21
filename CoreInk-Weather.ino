@@ -1,64 +1,131 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include "M5CoreInk.h"
-#include "esp_adc_cal.h"
-#include "images/background.c"
-#include "images/cloudy.c"
-#include "images/rainy.c"
-#include "images/rainyandcloudy.c"
-#include "images/snow.c"
-#include "images/sunny.c"
-#include "images/sunnyandcloudy.c"
+#include <M5CoreInk.h>
+
+#include "Battery.h"
+#include "DateTimeUtil.h"
+#include "Weather.h"
+#include "images/background.h"
+#include "images/cloudy.h"
+#include "images/rainy.h"
+#include "images/rainyandcloudy.h"
+#include "images/snow.h"
+#include "images/sunny.h"
+#include "images/sunnyandcloudy.h"
+#include "images/lowbattery.h"
+#include "time.h"
+
+#define SHOW_LAST_UPDATED false // 天気を更新した時刻を表示するかどうか
+#define SHOW_BATTERY_CAPACITY false // 電池残量を表示するかどうか
+
+#define LOW_BATTERY_THRETHOLD 20 // バッテリー残量低下と判断するバッテリー残量 (0 - 100)
+
+// この時刻より前は今日の時刻を表示し、この時刻以降は明日の時刻を表示する
+const int8_t boundaryOfDate = 18;
+
+// WiFi接続情報を指定する場合は有効にする 無効の場合は前回接続したWiFiの情報を使用
+#define WIFI_SSID ""
+#define WIFI_PASS ""
+
+// NTPによる時刻補正を常に行う場合は有効にする 無効の場合でもEXTボタンを押しながら起動することで時刻補正を行う
+#define ADJUST_RTC_NTP
+
+// 天気を取得する間隔(秒) 1 - 10800 の間で指定
+// 気象庁から取得できるJSONの仕様を鑑みて、午前6時と午後6時に取得する方針に変更
+//#define UPDATE_INTERVAL 10
+
+const char* endpoint = "https://www.jma.go.jp/bosai/forecast/data/forecast/130000.json";
+const char* region = "東京地方";
+
+const char* NTP_SERVER = "ntp.nict.jp";
+const char* TZ_INFO    = "JST-9";
+
+/*
+// --------------
+*/
 
 Ink_Sprite dateSprite(&M5.M5Ink);
 Ink_Sprite weatherSprite(&M5.M5Ink);
 Ink_Sprite temperatureSprite(&M5.M5Ink);
 Ink_Sprite rainfallChanceSprite(&M5.M5Ink);
 
-const char* endpoint = "https://www.drk7.jp/weather/json/13.js";
-const char* region = "東京地方";
 DynamicJsonDocument weatherInfo(20000);
  
 void setup() {
     M5.begin();
     Wire.begin();
     Serial.begin(115200);
-    WiFi.begin();
-    //WiFi.begin("SSID","Key");
-    dateSprite.creatSprite(0,0,200,200);
+
+    dateSprite.creatSprite(0,0,200,200); // typo of "create"
     weatherSprite.creatSprite(0,0,200,200);
     temperatureSprite.creatSprite(0,0,200,200);
     rainfallChanceSprite.creatSprite(0,0,200,200);
+
+    // バッテリー残量が低下している場合はそのことを表示し、自動更新はしない
+    if(getBatCapacity() < LOW_BATTERY_THRETHOLD) {
+        drawLowbattery();
+        delay(1000);
+        digitalWrite(LED_EXT_PIN,LOW);
+        M5.shutdown();
+        return;
+    }
+
+#ifdef WIFI_SSID
+    WiFi.begin(WIFI_SSID,WIFI_PASS);
+#else
+    WiFi.begin();
+#endif
      
     while (WiFi.status() != WL_CONNECTED) {
         delay(1000);
         Serial.println("Connecting to WiFi..");
     }
     Serial.println("Connected to the WiFi network");
+
+    // EXTが押されている時は時刻合わせをする
+    if(M5.BtnEXT.isPressed()) adjustRTC();
+    else {
+#ifdef ADJUST_RTC_NTP
+        adjustRTC();
+#endif
+    }
+
     weatherInfo = getJson();
     WiFi.disconnect();
-    drawTodayWeather(); 
+
+    // 18時以降は明日の天気を表示 それ以外は今日の天気を表示
+    RTC_DateTypeDef RtcDate;
+    RTC_TimeTypeDef RtcTime;
+    M5.rtc.GetTime(&RtcTime);
+    M5.rtc.GetDate(&RtcDate); // typo of "Date"
+    if(RtcTime.Hours >= boundaryOfDate) offsetDate(&RtcDate,1); // RtcDateを翌日に設定
+
+    drawWeather(getWeatherOfDay(RtcDate));
+    drawDate(dateToString(RtcDate));
+
+    delay(1000);
+
+    // 今が午前なら次は午後6時に、今が午後なら次は午前6時に起動
+    RTC_DateTypeDef RtcDateToWake;
+    RTC_TimeTypeDef RtcTimeToWake;
+    M5.rtc.GetTime(&RtcTimeToWake);
+    M5.rtc.GetDate(&RtcDateToWake);
+    if(RtcTime.Hours < 12) {
+        RtcTimeToWake.Hours = 18;
+    }
+    else {
+        offsetDate(&RtcDateToWake, 1);
+        RtcTimeToWake.Hours = 6;
+    }
+    digitalWrite(LED_EXT_PIN,LOW);
+    M5.shutdown(RtcDateToWake,RtcTimeToWake);
 }
  
 void loop() {
-    delay(1);
-    if (M5.BtnUP.wasPressed()) {
-        drawTodayWeather(); 
-    }
-    if (M5.BtnMID.wasPressed()) {
-        drawTomorrowWeather();
-    }
-    if (M5.BtnDOWN.wasPressed()) {
-        drawDayAfterTomorrowWeather();
-    }
-    if( M5.BtnPWR.wasPressed())
-    {
-        Serial.printf("Btn %d was pressed \r\n",BUTTON_EXT_PIN);
-        digitalWrite(LED_EXT_PIN,LOW);
-        M5.PowerDown();
-    }
-    M5.update();
+    // USBによる電源供給が行われている場合はShutdownしても電源が切れないが、
+    // RTCの設定は保持されている
+    delay(1000);
 }
 
 DynamicJsonDocument getJson() {
@@ -70,7 +137,7 @@ DynamicJsonDocument getJson() {
         int httpCode = http.GET();
         if (httpCode > 0) {
             //jsonオブジェクトの作成
-            String jsonString = createJson(http.getString());
+            String jsonString = http.getString();
             deserializeJson(doc, jsonString);
         } else {
             Serial.println("Error on HTTP request");
@@ -80,92 +147,161 @@ DynamicJsonDocument getJson() {
     return doc;
 }
 
-// JSONP形式からJSON形式に変える
-String createJson(String jsonString){
-    jsonString.replace("drk7jpweather.callback(","");
-    return jsonString.substring(0,jsonString.length()-2);
+Weather getWeatherOfDay(RTC_Date date) {
+    Weather weather = {"",255,-255,255,-255};
+    JsonArray data = weatherInfo[0]["timeSeries"];
+    String dateString = dateToString(date);
+
+    // areasのindexを取得
+    uint8_t areaIndex = 0;
+    for(int i = 0; i < data[0]["areas"].size();i++) {
+        if(data[0]["areas"][i]["area"]["name"].as<String>() == region) {
+            areaIndex = i;
+            break;
+        }
+    }
+
+    Serial.printf("areaIndex : %d\n", areaIndex);
+
+    // 天気を取得
+    JsonObject weatherData = data[0];
+    for(int i = 0;i < weatherData["timeDefines"].size();i++) {
+        JsonVariant v = weatherData["timeDefines"][i];
+        if(v.as<String>().startsWith(dateString)) {
+            // weathersのi番目がこの日の天気
+            weather.weather = weatherData["areas"][areaIndex]["weathers"][i].as<String>();
+            break;
+        } 
+    }
+
+    // 降水確率を取得
+    JsonObject rainfallData = data[1];
+    for(int i = 0;i < rainfallData["timeDefines"].size();i++) {
+        JsonVariant v = rainfallData["timeDefines"][i];
+        if(v.as<String>().startsWith(dateString)) {
+            // popsのi番目がこの日の気温の一つ
+            int pop = rainfallData["areas"][areaIndex]["pops"][i].as<int>();
+            if(weather.minRainfallChance > pop) weather.minRainfallChance = pop;
+            if(weather.maxRainfallChance < pop) weather.maxRainfallChance = pop;
+        } 
+    }
+
+    // 気温を取得
+    JsonObject temperatureData = data[2];
+    for(int i = 0;i < temperatureData["timeDefines"].size();i++) {
+        JsonVariant v = temperatureData["timeDefines"][i];
+        if(v.as<String>().startsWith(dateString)) {
+            // tempsのi番目がこの日の気温の一つ
+            int temp = temperatureData["areas"][areaIndex]["temps"][i].as<int>();
+            if(weather.minTemperature > temp) weather.minTemperature = temp;
+            if(weather.maxTemperature < temp) weather.maxTemperature = temp;
+        } 
+    }
+
+    return weather;
 }
 
-void drawTodayWeather() {
-    String today = weatherInfo["pref"]["area"][region]["info"][0];
-    drawWeather(today);
-}
+void drawWeather(Weather weather) {
+    Serial.printf("Weather: %s, minTemp: %d, maxTemp: %d, minRain: %d, maxRain: %d\n",weather.weather.c_str(),weather.minTemperature,weather.maxTemperature,weather.minRainfallChance,weather.maxRainfallChance);
 
-void drawTomorrowWeather() {
-    String tomorrow = weatherInfo["pref"]["area"][region]["info"][1];
-    drawWeather(tomorrow);
-}
-
-void drawDayAfterTomorrowWeather() {
-    String dayAfterTomorrow = weatherInfo["pref"]["area"][region]["info"][2];
-    drawWeather(dayAfterTomorrow);
-}
-
-void drawWeather(String infoWeather) {
     M5.M5Ink.clear();
-    M5.M5Ink.drawBuff((uint8_t *)background);
+    M5.M5Ink.drawBuff((uint8_t *)image_background);
     weatherSprite.clear();
     
-    DynamicJsonDocument doc(20000);
-    deserializeJson(doc, infoWeather);
-    String weather = doc["weather"];
-    if (weather.indexOf("雨") != -1) {
-        if (weather.indexOf("くもり") != -1) {
-            weatherSprite.drawBuff(46,36,108,96,rainyandcloudy);
+    String weatherString = weather.weather;
+    if (weatherString.indexOf("晴") != 0) {
+        if (weatherString.indexOf("時々　くもり") != -1) {
+            weatherSprite.drawBuff(46,36,108,96,image_sunnyandcloudy);
         } else {
-            weatherSprite.drawBuff(46,36,108,96,rainy);
+            weatherSprite.drawBuff(46,36,108,96,image_sunny);
         }
-    } else if (weather.indexOf("晴") != -1) {
-        if (weather.indexOf("くもり") != -1) {
-            weatherSprite.drawBuff(46,36,108,96,sunnyandcloudy);
+    } else if (weatherString.indexOf("雨") != 0) {
+        if (weatherString.indexOf("時々　くもり") != -1) {
+            weatherSprite.drawBuff(46,36,108,96,image_rainyandcloudy);
         } else {
-            weatherSprite.drawBuff(46,36,108,96,sunny);
+            weatherSprite.drawBuff(46,36,108,96,image_rainy);
         }
-    } else if (weather.indexOf("雪") != -1) {
-            weatherSprite.drawBuff(46,36,108,96,snow);
-    } else if (weather.indexOf("くもり") != -1) {
-            weatherSprite.drawBuff(46,36,108,96,cloudy);
+    } else if (weatherString.indexOf("雪") != 0) {
+            weatherSprite.drawBuff(46,36,108,96,image_snow);
+    } else if (weatherString.indexOf("くもり") != 0) {
+        if (weatherString.indexOf("時々　雨") != -1) {
+            weatherSprite.drawBuff(46,36,108,96,image_rainyandcloudy);
+        } else {
+            weatherSprite.drawBuff(46,36,108,96,image_cloudy);
+        }
     }
     weatherSprite.pushSprite();
  
-   String maxTemperature = doc["temperature"]["range"][0]["content"];
-   String minTemperature = doc["temperature"]["range"][1]["content"];
-   drawTemperature(maxTemperature, minTemperature);
- 
-    int rainfallChances[] = {doc["rainfallchance"]["period"][0]["content"].as<String>(), //as<int>()だとなぜか0が返ってくる
-        doc["rainfallchance"]["period"][1]["content"].as<String>(),
-        doc["rainfallchance"]["period"][2]["content"].as<String>(),
-        doc["rainfallchance"]["period"][3]["content"].as<String>()};
-
-    int maxRainfallChance = -255;
-    int minRainfallChance = 255;
-
-    for(int item : rainfallChances) {
-        if(item > maxRainfallChance) maxRainfallChance = item;
-        if(item < minRainfallChance) minRainfallChance = item;
-    }
-    
-   drawRainfallChance(String(maxRainfallChance),String(minRainfallChance));
- 
-   drawDate(doc["date"]);
-}
+    drawTemperature(String(weather.maxTemperature), String(weather.minTemperature));
+    drawRainfallChance(String(weather.maxRainfallChance),String(weather.minRainfallChance));
+ }
 
 void drawTemperature(String maxTemperature, String minTemperature) {
     temperatureSprite.clear();
-    temperatureSprite.drawString(60,147,maxTemperature.c_str(),&AsciiFont8x16);
-    temperatureSprite.drawString(60,169,minTemperature.c_str(),&AsciiFont8x16);
+    delay(1);
+    temperatureSprite.drawString(63,145,maxTemperature.c_str(),&AsciiFont8x16);
+    temperatureSprite.drawString(63,168,minTemperature.c_str(),&AsciiFont8x16);
     temperatureSprite.pushSprite();
 }
 
 void drawRainfallChance(String maxRainfallChance,String minRainfallChance) {
     rainfallChanceSprite.clear();
-    rainfallChanceSprite.drawString(142,147,maxRainfallChance.c_str(),&AsciiFont8x16);
-    rainfallChanceSprite.drawString(142,169,minRainfallChance.c_str(),&AsciiFont8x16);
+    delay(1);
+    rainfallChanceSprite.drawString(142,145,maxRainfallChance.c_str(),&AsciiFont8x16);
+    rainfallChanceSprite.drawString(142,168,minRainfallChance.c_str(),&AsciiFont8x16);
     rainfallChanceSprite.pushSprite();
 }
 
 void drawDate(String date) {
     dateSprite.clear();
     dateSprite.drawString(60,16,date.c_str(),&AsciiFont8x16);
+    
+    // Draw last updated time
+    if(SHOW_LAST_UPDATED){
+        RTC_DateTypeDef RtcDate;
+        RTC_TimeTypeDef RtcTime;
+        M5.rtc.GetTime(&RtcTime);
+        M5.rtc.GetDate(&RtcDate); // typo of "Date"
+        String nowString = String("Updated: ") + dateTimeToString(RtcDate,RtcTime);
+        dateSprite.drawString(0,184,nowString.c_str(),&AsciiFont8x16);
+    }
+
+    //Draw battery capacity
+    if(SHOW_BATTERY_CAPACITY) dateSprite.drawString(176,184,(String(getBatCapacity()) + String("%")).c_str(),&AsciiFont8x16);
+
     dateSprite.pushSprite();
+}
+
+void drawLowbattery(){
+    M5.M5Ink.clear();
+    M5.M5Ink.drawBuff((uint8_t *)image_background);
+    weatherSprite.clear();
+    weatherSprite.drawString(56,16,"Low Battery",&AsciiFont8x16);
+    weatherSprite.drawBuff(46,36,108,96,image_lowbattery);
+    weatherSprite.pushSprite();
+}
+
+void adjustRTC() {
+    Serial.println("RTC adjusting...");
+
+    tm timeinfo;
+    time_t now;
+    RTC_TimeTypeDef RtcTime;
+    RTC_DateTypeDef RtcDate;
+
+    configTime(0, 0, NTP_SERVER);
+    setenv("TZ", TZ_INFO, 1);
+    delay(1500); // wait to adjust time by NTP server 
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    // print adjusted time to serial
+    char time_output[30];
+    strftime(time_output, 30, "NTP: %a  %d-%m-%y %T", localtime(&now));
+    Serial.println(time_output);
+    
+    // save to RTC
+    convertTimeToRTC(&RtcTime, timeinfo);
+    convertDateToRTC(&RtcDate, timeinfo);
+    M5.rtc.SetTime(&RtcTime);
+    M5.rtc.SetDate(&RtcDate);
 }
