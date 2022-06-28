@@ -51,6 +51,16 @@ Ink_Sprite temperatureSprite(&M5.M5Ink);
 Ink_Sprite rainfallChanceSprite(&M5.M5Ink);
 
 DynamicJsonDocument weatherInfo(20000);
+
+void drawLowbattery();
+void adjustRTC();
+DynamicJsonDocument getJson();
+Weather getWeatherOfDay(RTC_Date date);
+Weather getWeatherOfDay(RTC_Date date);
+void drawWeather(Weather weather);
+void drawDate(String date);
+void drawTemperature(String maxTemperature, String minTemperature);
+void drawRainfallChance(String maxRainfallChance,String minRainfallChance);
  
 void setup() {
     M5.begin();
