@@ -16,8 +16,8 @@
 #include "images/lowbattery.h"
 #include "time.h"
 
-#define SHOW_LAST_UPDATED false // 天気を更新した時刻を表示するかどうか
-#define SHOW_BATTERY_CAPACITY false // 電池残量を表示するかどうか
+#define SHOW_LAST_UPDATED true // 天気を更新した時刻を表示するかどうか
+#define SHOW_BATTERY_CAPACITY true // 電池残量を表示するかどうか
 
 #define LOW_BATTERY_THRETHOLD 20 // バッテリー残量低下と判断するバッテリー残量 (0 - 100)
 
@@ -35,8 +35,8 @@ const int8_t boundaryOfDate = 18;
 // 気象庁から取得できるJSONの仕様を鑑みて、午前6時と午後6時に取得する方針に変更
 //#define UPDATE_INTERVAL 10
 
-const char* endpoint = "https://www.jma.go.jp/bosai/forecast/data/forecast/130000.json";
-const char* region = "東京地方";
+const char* endpoint = "https://www.jma.go.jp/bosai/forecast/data/forecast/140000.json";
+const char* region = "東部";
 
 const char* NTP_SERVER = "ntp.nict.jp";
 const char* TZ_INFO    = "JST-9";
@@ -209,21 +209,21 @@ void drawWeather(Weather weather) {
     weatherSprite.clear();
     
     String weatherString = weather.weather;
-    if (weatherString.indexOf("晴") != 0) {
-        if (weatherString.indexOf("時々　くもり") != -1) {
+    if (weatherString.indexOf("晴") == 0) {// 先頭が「晴」から始まる
+        if (weatherString.indexOf("時々　くもり") != -1) {// 「時々　くもり」が含まれる
             weatherSprite.drawBuff(46,36,108,96,image_sunnyandcloudy);
         } else {
             weatherSprite.drawBuff(46,36,108,96,image_sunny);
         }
-    } else if (weatherString.indexOf("雨") != 0) {
+    } else if (weatherString.indexOf("雨") == 0) {
         if (weatherString.indexOf("時々　くもり") != -1) {
             weatherSprite.drawBuff(46,36,108,96,image_rainyandcloudy);
         } else {
             weatherSprite.drawBuff(46,36,108,96,image_rainy);
         }
-    } else if (weatherString.indexOf("雪") != 0) {
+    } else if (weatherString.indexOf("雪") == 0) {
             weatherSprite.drawBuff(46,36,108,96,image_snow);
-    } else if (weatherString.indexOf("くもり") != 0) {
+    } else if (weatherString.indexOf("くもり") == 0) {
         if (weatherString.indexOf("時々　雨") != -1) {
             weatherSprite.drawBuff(46,36,108,96,image_rainyandcloudy);
         } else {

@@ -1,8 +1,8 @@
 #ifndef _BATTERY_H_
 #define _BATTERY_H_
 
-#include <M5CoreInk.h>
-#include <esp_adc_cal.h>
+#include "M5CoreInk.h"
+#include "esp_adc_cal.h"
 
 // Reference: https://github.com/ksasao/ImageToCoreInk/blob/main/sample/arduino/sample_image/sample_image.ino
 
