@@ -3,6 +3,8 @@
 #include <ArduinoJson.h>
 #include <M5CoreInk.h>
 
+#include "WifiConfig.h"
+
 #include "Battery.h"
 #include "DateTimeUtil.h"
 #include "Weather.h"
@@ -25,8 +27,8 @@
 const int8_t boundaryOfDate = 18;
 
 // WiFi接続情報を指定する場合は有効にする 無効の場合は前回接続したWiFiの情報を使用
-#define WIFI_SSID ""
-#define WIFI_PASS ""
+#define WIFI_SSID (char*)wifiSsid
+#define WIFI_PASS (char*)wifiPass
 
 // NTPによる時刻補正を常に行う場合は有効にする 無効の場合でもEXTボタンを押しながら起動することで時刻補正を行う
 #define ADJUST_RTC_NTP
@@ -51,6 +53,16 @@ Ink_Sprite temperatureSprite(&M5.M5Ink);
 Ink_Sprite rainfallChanceSprite(&M5.M5Ink);
 
 DynamicJsonDocument weatherInfo(20000);
+
+void drawLowbattery();
+void adjustRTC();
+DynamicJsonDocument getJson();
+Weather getWeatherOfDay(RTC_Date date);
+Weather getWeatherOfDay(RTC_Date date);
+void drawWeather(Weather weather);
+void drawDate(String date);
+void drawTemperature(String maxTemperature, String minTemperature);
+void drawRainfallChance(String maxRainfallChance,String minRainfallChance);
  
 void setup() {
     M5.begin();
