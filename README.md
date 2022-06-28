@@ -1,6 +1,6 @@
 # CoreInk-Weather
 
-![写真](images/eyecatch.jpg)
+![写真](src/images/eyecatch.jpg)
 
 M5Stack CoreInkで天気が表示できます。
 
@@ -10,6 +10,11 @@ M5Stack CoreInkで天気が表示できます。
 * 電池残量が少ない時の定期更新の停止および警告表示
 * 18時以降は翌日の天気を表示する
 * NTPを用いた時刻合わせ
+
+## WiFi設定方法
+
+1. `src/WifiConfig.h.example`をコピーして`src/WifiConfig.h`を作成します。
+2. `src/WifiConfig.h`の`wifiSsid`および`wifiPass`を記述します。
 
 ## 天気を取得する地域の設定方法
 
@@ -30,6 +35,12 @@ const char* region = "[地域]";
 const char* endpoint = "https://www.jma.go.jp/bosai/forecast/data/forecast/130000.json";
 const char* region = "東京地方";
 ```
+
+## ビルド
+
+PlatformIOおよびVisualStudioCodeを使用してビルド・書き込みを行っています。
+
+VisualStudioCodeに、拡張機能としてPlatformIOをインストールし、ビルドを行います。
 
 ## 参考
 
