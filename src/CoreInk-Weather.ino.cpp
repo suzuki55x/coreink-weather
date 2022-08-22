@@ -37,8 +37,8 @@ const int8_t boundaryOfDate = 18;
 // 気象庁から取得できるJSONの仕様を鑑みて、午前6時と午後6時に取得する方針に変更
 //#define UPDATE_INTERVAL 10
 
-const char* endpoint = "https://www.jma.go.jp/bosai/forecast/data/forecast/140000.json";
-const char* region = "東部";
+const char* endpoint = "https://www.jma.go.jp/bosai/forecast/data/forecast/080000.json";
+const char* region = "南部";
 
 const char* NTP_SERVER = "ntp.nict.jp";
 const char* TZ_INFO    = "JST-9";
